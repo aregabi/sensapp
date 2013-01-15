@@ -25,6 +25,8 @@ package net.modelbased.sensapp.service.dispatch
 
 import cc.spray._
 import cc.spray.typeconversion.SprayJsonSupport
+import cc.spray.http._
+import cc.spray.http.HttpHeaders._
 import net.modelbased.sensapp.library.senml.{Root => SenMLRoot}
 import net.modelbased.sensapp.library.senml.export.{JsonProtocol => SenMLProtocol}
 import net.modelbased.sensapp.library.system.{Service => SensAppService} 
@@ -43,11 +45,18 @@ trait Service extends SensAppService {
           content(as[SenMLRoot]) { data => context =>
             val handled = data.dispatch.par map {
               case (target, data) => {
-                try {
-                  Dispatch(partners, target, data.measurementsOrParameters.get)
-                  None
-                } catch { case e => { actorSystem.log.info(e.toString); Some(target) } }
-              }
+                  try {
+                    var author : String = null;
+                    for(hdr <- context.request.headers){
+                      if (hdr.name.equals("Authorization")){
+                        author = hdr.value.trim;
+                      }                  
+                    }
+                  
+                    Dispatch(partners, target, data.measurementsOrParameters.get, author)
+                    None
+                  } catch { case e => { actorSystem.log.info(e.toString); Some(target) } }
+                }
             }
             context complete handled.filter{ _.isDefined }.toList
           }

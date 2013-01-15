@@ -34,10 +34,14 @@ object Dispatch extends HttpSpraySupport with io.Marshaller {
   
   def httpClientName = "dispatch-helper"
   
-  def apply(partners: PartnerHandler, sensor: String, mops: Seq[MeasurementOrParameter]) {
-    val (dataUrl,backend) = LocalCache(partners("registry").get, sensor)
+  def apply(partners: PartnerHandler, sensor: String, mops: Seq[MeasurementOrParameter], secret: String) {
+    val (dataUrl,backend, secretref) = LocalCache(partners("registry").get, sensor)
     val data = buildRootMessage(mops)
-    sendData(partners, sensor, data, dataUrl, backend)
+
+    if (secretref == null || secretref == secret){
+      sendData(partners, sensor, data, dataUrl, backend)
+    }
+
     //notifyListeners(partners("notifier").get, sensor, data)
   }
   
@@ -55,17 +59,17 @@ object Dispatch extends HttpSpraySupport with io.Marshaller {
       val pipeline = simpleRequest[Root] ~> sendReceive ~> unmarshal[String]
     }
     conduit.pipeline(Put(url,Some(data)))
-      .onSuccess { case x => {
+    .onSuccess { case x => {
           conduit.close
           notifyListeners(partners("notifier").get, sensor, data)
         } 
-      }
-      .onFailure { case e: UnsuccessfulResponseException => {
+    }
+    .onFailure { case e: UnsuccessfulResponseException => {
           conduit.close
           system.log.info("Exception while sending data ["+url+"]: " + e.responseStatus)
           throw new RuntimeException("Unable to reach sensor database ["+url+"]")
         }
-      }
+    }
   }
   
   private[this] def notifyListeners(notifier: (String, Int), sensor: String, root: Root) {
@@ -74,13 +78,13 @@ object Dispatch extends HttpSpraySupport with io.Marshaller {
     }
     // Asynchronous notification
     conduit.pipeline(Put("/sensapp/notifier", Some(root)))
-      .onSuccess { case x => conduit.close() }
-      .onFailure { 
-        case e => {
+    .onSuccess { case x => conduit.close() }
+    .onFailure { 
+      case e => {
           conduit.close(); 
           val url = "http://"+notifier._1 +":"+ notifier._2 + "/notifier"
           system.log.info("Exception while notifying ["+url+"]: " + e)
         }
-      }
+    }
   }
 }

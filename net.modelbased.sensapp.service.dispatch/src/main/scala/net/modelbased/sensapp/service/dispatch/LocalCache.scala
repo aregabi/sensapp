@@ -35,9 +35,9 @@ object LocalCache extends HttpSpraySupport with SprayJsonSupport {
 
   def httpClientName = "localcache-helper"
     
-  private[this] var bindings: Map[String, (String, String)] = Map()
+  private[this] var bindings: Map[String, (String, String, String)] = Map()
   
-  def apply(registry: (String, Int), sensor: String): (String, String) = {
+  def apply(registry: (String, Int), sensor: String): (String, String, String) = {
     this.bindings.get(sensor) match {
       case None => {
         val data = getBackendUrl(registry, sensor)
@@ -48,7 +48,7 @@ object LocalCache extends HttpSpraySupport with SprayJsonSupport {
     }
   }
   
-  private[this] def getBackendUrl(registry: (String, Int), sensor: String): (String, String) = {
+  private[this] def getBackendUrl(registry: (String, Int), sensor: String): (String, String, String) = {
     val conduit = new HttpConduit(httpClient, registry._1, registry._2) {
       val pipeline = simpleRequest ~> sendReceive ~> unmarshal[String]
     }
@@ -56,7 +56,8 @@ object LocalCache extends HttpSpraySupport with SprayJsonSupport {
     val data = Await.result(response, 5 seconds).asJson
 	conduit.close()
     val descr = data.asJsObject.getFields("backend")(0).asJsObject.getFields("dataset", "kind")
-    (descr(0).convertTo[String], descr(1).convertTo[String])
+    val secret = data.asJsObject.getFields("infos")(0).asJsObject.getFields("tags")(0).asJsObject.getFields("secret")
+    (descr(0).convertTo[String], descr(1).convertTo[String], if (secret.size != 0) secret(0).convertTo[String] else null)
   }
   
   
