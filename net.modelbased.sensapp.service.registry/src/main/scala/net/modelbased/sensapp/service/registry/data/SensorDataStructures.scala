@@ -69,7 +69,7 @@ case class Backend(val kind: String, val descriptor: String, val dataset: String
  * @param localization an optional localization for this sensor
  */
 case class SensorInformation(
-  val tags: Map[String, String],
+  var tags: Map[String, String],
   val updateTime: Option[Long],
   val localization: Option[Localisation]
   )
@@ -89,6 +89,12 @@ case class SensorDescription(
   val creationDate: Long,
   var infos: SensorInformation
   )
+  
+/**
+ * Description of a SensApp sensor accessed without a valid token
+ * @param backend the used backend
+ */
+case class SensorDescriptionLimited(val backend: Backend)
 
 /**
  * Localisation information for a given sensor
@@ -116,7 +122,6 @@ case class CompositeSensorDescription(
 case class DescriptionUpdate(val description: String) 
 case class SensorList(val sensors: List[String])
 case class SensorTags(val tags: Map[String, String])
-
   
 /**
  *  Json protocols to support serialization through spray-json 
@@ -126,6 +131,7 @@ object ElementJsonProtocol extends DefaultJsonProtocol {
   implicit val backend = jsonFormat(Backend, "kind", "descriptor", "dataset")
   implicit val infos = jsonFormat(SensorInformation, "tags", "update_time", "loc")
   implicit val sensorDescription = jsonFormat(SensorDescription, "id", "descr", "backend", "creation_date", "infos")
+  implicit val sensorDescriptionLimited = jsonFormat(SensorDescriptionLimited, "backend")
   implicit val schema = jsonFormat(Schema, "backend", "template", "baseTime")
   implicit val creationRequest = jsonFormat(CreationRequest, "id", "descr", "schema")
   implicit val compositeSensorDescription = jsonFormat(CompositeSensorDescription, "id", "descr", "tags", "sensors")
