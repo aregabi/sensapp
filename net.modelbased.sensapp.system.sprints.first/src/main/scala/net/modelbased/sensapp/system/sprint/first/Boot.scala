@@ -28,6 +28,7 @@ import net.modelbased.sensapp.service.registry.{ RegistryService, CompositeRegis
 import net.modelbased.sensapp.service.dispatch.{ Service => DispatchService }
 import net.modelbased.sensapp.service.notifier.{ Service => NotifierService }
 import net.modelbased.sensapp.service.converter.{ Service => ConverterService }
+import net.modelbased.sensapp.service.oauth.{ Service => OAuthService }
 import net.modelbased.sensapp.library.system._ 
 
 class Boot(override val system: ActorSystem) extends System {
@@ -47,7 +48,8 @@ class Boot(override val system: ActorSystem) extends System {
          new CompositeRegistryService with iod {},
          new DispatchService    with iod {}, 
          new NotifierService    with iod {},
-         new ConverterService with iod {}         )
+         new ConverterService   with iod {},
+         new OAuthService       with iod {} )
   }  
 }
  

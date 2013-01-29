@@ -39,68 +39,235 @@ trait RegistryService extends SensAppService {
   
   override implicit lazy val partnerName = "registry"
   
-  override implicit lazy val partnersNames = List("database.raw")
+  override implicit lazy val partnersNames = List("database.raw", "oauth")
     
   val service = {
     path("registry" / "sensors") {
       get { 
         parameter("flatten" ? false) { flatten =>  context =>
+          
+          val auth = getAuthorizationCode(context)
+          
+          //Get sensors
           val descriptors =  _registry.retrieve(List()).par
-          if (flatten) {
-            context complete descriptors.seq
-          } else {
-            val uris = descriptors map { s => URLHandler.build("/registry/sensors/"+ s.id) }
-            context complete uris.seq
+          
+          val userName = checkAuthorization(auth, 0)
+          
+          //If the authorization code is valid
+          if(userName != null) {
+            
+            //Sensors list
+            val sensors = descriptors.toList
+            var sensorsList: List[SensorDescription] = List()
+            //For each sensor in the sensors list
+            for(sensor <- sensors) {
+              //If a user name is in the sensor
+              if(sensor.infos.tags.contains("user")) {
+                sensor.infos.tags.get("user") match {
+                  case Some(u) => {
+                      if(u == userName) sensorsList ::= sensor
+                  }
+                }
+              }
+            }
+            
+            if (flatten) {
+              //context complete descriptors
+              context complete sensorsList.par.seq
+              
+            } else {
+              val uris = sensorsList.par map { s => URLHandler.build("/registry/sensors/"+ s.id) }
+              context complete uris.seq
+            }
           }
+          
+          //If the authorization code is invalid, return only
+          else context complete "The authorization code "+auth+" is no longer valid or does not exist!"
+          
         } 
-      } ~ 
+      } ~
       post {
         content(as[CreationRequest]) { request => context =>
-          if (_registry exists ("id", request.id)){
-            context fail (StatusCodes.Conflict, "A SensorDescription identified as ["+ request.id +"] already exists!")
-          } else {
-            // Create the database
-            val backend = createDatabase(request.id, request.schema)
-            // Store the descriptor
-            _registry push (request.toDescription(backend))
-            context complete URLHandler.build("/registry/sensors/" + request.id)
+          val auth = getAuthorizationCode(context)
+          
+          val userName = checkAuthorization(auth, 1)
+          
+          //If the authorization code is valid
+          if(userName != null) {
+            if (_registry exists ("id", request.id)){
+              context fail (StatusCodes.Conflict, "A SensorDescription identified as ["+ request.id +"] already exists!")
+            } else {
+              // Create the database
+              val backend = createDatabase(request.id, request.schema)
+              // Store the descriptor
+              _registry push (request.toDescription(backend))
+              context complete URLHandler.build("/registry/sensors/" + request.id)
+            }
           }
+          
+          //If the authorization code is invalid
+          else context complete "The authorization code "+auth+" is no longer valid or does not exist!"
+          
         }
       } ~ cors("GET", "POST")
     } ~ 
     path("registry" / "sensors" / SenMLStd.NAME_VALIDATOR.r ) { name =>
       get { context =>
-        ifExists(context, name, {context complete (_registry pull ("id", name)).get})
+        
+        val auth = getAuthorizationCode(context)
+        
+        val userName = checkAuthorization(auth, 1)
+        
+        val tmp = (_registry pull ("id", name)).get
+        
+        //If the authorization code is valid
+        if(userName != null) {
+          if(tmp.infos.tags.contains("user")) {
+            tmp.infos.tags.get("user") match {
+              case Some(u) => {
+                if(u == userName)
+                  ifExists(context, name, {context complete tmp})
+                else
+                  context complete "Unauthorized"
+              }
+              case _ => context complete "Unauthorized"
+            }
+          }
+          else context complete "Unauthorized"
+        }
+        
+        //If the authorization code is invalid
+        else context complete SensorDescriptionLimited(tmp.backend)
+      
       } ~
       delete { context =>
-        ifExists(context, name, {
-          val sensor = _registry pull ("id", name)
-          delDatabase(name)
-          propagateDeletionToComposite(URLHandler.build("/registry/sensors/" + sensor))
-          _registry drop sensor.get
-          context complete "true"
-        })
+        
+        val auth = getAuthorizationCode(context)
+        
+        val userName = checkAuthorization(auth, 1)
+        
+        //If the authorization code is valid
+        if(userName != null) {
+          ifExists(context, name, {
+            val sensor = _registry pull ("id", name)
+            if(sensor.get.infos.tags.contains("user")) {
+              sensor.get.infos.tags.get("user") match {
+                case Some(u) => {
+                  if(u == userName) {
+                    delDatabase(name)
+                    propagateDeletionToComposite(URLHandler.build("/registry/sensors/" + sensor))
+                    _registry drop sensor.get
+                    context complete "true"
+                  }
+                  else context complete "Unauthorized"
+                }
+                case _ => context complete "Unauthorized"
+              }
+            }
+            context complete "Unauthorized"
+          })
+        }
+        
+        //If the authorization code is invalid
+        else context complete "The authorization code "+auth+" is no longer valid or does not exist!"
+        
       } ~
       put {
         content(as[SensorInformation]) { info => context =>
-          ifExists(context, name, {
-            val sensor = (_registry pull ("id", name)).get
-            val safe = SensorInformation(info.tags.filter( t => t._1 != "" ), info.updateTime, info.localization)
-            sensor.infos = safe
-            _registry push sensor
-            context complete sensor
-          })
+          
+          val auth = getAuthorizationCode(context)
+          
+          val userName = checkAuthorization(auth, 1)
+          
+          //If the authorization code is valid
+          if(userName != null) {
+            ifExists(context, name, {
+              val sensor = (_registry pull ("id", name)).get
+              
+              //If the sensor doesn't contain a user
+              if(!sensor.infos.tags.contains("user")) {
+                val safe = SensorInformation(info.tags.filter( t => t._1 != "" ).filter( t => t._1 != "user"), info.updateTime, info.localization)
+                sensor.infos = safe
+                sensor.infos.tags += (("user", userName))
+                _registry push sensor
+                context complete sensor
+              }
+              
+              //If the sensor contains a user
+              else {
+                sensor.infos.tags.get("user") match {
+                  case Some(u) => {
+                    if(u == userName) {
+                      val safe = SensorInformation(info.tags.filter( t => t._1 != "" ).filter( t => t._1 != "user"), info.updateTime, info.localization)
+                      sensor.infos = safe
+                      sensor.infos.tags += (("user", userName))
+                      _registry push sensor
+                      context complete sensor
+                    }
+                    else context complete "Unauthorized"
+                  }
+                  case _ => context complete "Unauthorized"
+                }
+              }
+            })
+          }
+          
+          //If the authorization code is invalid
+          else context complete "The authorization code "+auth+" is no longer valid or does not exist!"
+          
         } ~
         content(as[DescriptionUpdate]) { request => context =>
-          ifExists(context, name, {
-            val sensor = (_registry pull ("id", name)).get
-            sensor.description = request.description
-            _registry push sensor
-            context complete sensor
-          })
+          
+          val auth = getAuthorizationCode(context)
+          
+          val userName = checkAuthorization(auth, 1)
+          
+          //If the authorization code is valid
+          if(checkAuthorization(auth, 1) != null) {
+            ifExists(context, name, {
+              val sensor = (_registry pull ("id", name)).get
+              if(sensor.infos.tags.contains("user")) {
+                sensor.infos.tags.get("user") match {
+                  case Some(u) => {
+                    if(u == userName) {
+                      sensor.description = request.description
+                      _registry push sensor
+                      context complete sensor
+                    }
+                    else context complete "Unauthorized"
+                  }
+                  case _ => context complete "Unauthorized"
+                }
+              }
+              else context complete "Unauthorized"
+            })
+          }
+          
+          //If the authorization code is invalid
+          else context complete "The authorization code "+auth+" is no longer valid or does not exist!"
+          
         }
       } ~ cors("GET", "DELETE", "PUT")
     }
+  }
+  
+  //Giving a code and an accessLevel, check if the resource is accessible
+  private[this] def checkAuthorization(code: String, accessLevel: Int): String = {
+    checkOAuthToken(code, accessLevel)
+  }
+  
+  //Check OAuth token in oauth.token database
+  private[this] def checkOAuthToken(token: String, accessLevel: Int): String = {
+    OAuth.checkToken(token, accessLevel, "OAUTH_SERVICE_SECRET", partners)
+  }
+  
+  private[this] def getAuthorizationCode(context: RequestContext): String = {
+    var auth = ""
+    for(header <- context.request.headers) {
+      if(header.name equals "X-Authorization")
+        auth = header.value
+    }
+    auth
   }
   
   private[this] def createDatabase(id: String, schema: Schema): Backend = {
@@ -129,6 +296,6 @@ trait RegistryService extends SensAppService {
       lambda
     else
       context fail(StatusCodes.NotFound, "Unknown sensor [" + id + "]") 
-  } 
+  }
   
 }

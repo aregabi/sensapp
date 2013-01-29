@@ -11,6 +11,7 @@
   	{ "service": "notifier",             "node": "host" },
   	{ "service": "registry",             "node": "host" },
   	{ "service": "registry.composite",   "node": "host" },
-  	{ "service": "converter",            "node": "host" }
+  	{ "service": "converter",            "node": "host" },
+        { "service": "oauth",                "node": "host" }
   ]
 }

@@ -53,7 +53,7 @@ trait Service extends Directives with  io.Marshaller with io.Unmarshaller with S
    */
   private val headers: Map[String, Seq[String]] = Map(
       "Access-Control-Allow-Origin" -> Seq("*"),
-      "Access-Control-Allow-Headers" -> Seq("Accept", "Content-Type")
+      "Access-Control-Allow-Headers" -> Seq("Accept", "Content-Type", "X-Authorization")
     )
   
   /**
